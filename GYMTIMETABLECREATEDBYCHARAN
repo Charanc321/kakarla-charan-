@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <title>Gym Timetable & Notifier (Mon–Sat)</title>
+  <style>
+    :root{
+      --bg:#000000; --card:#0a0a0a; --edge:#1e1e1e; --text:#e9f3ff; --muted:#a9c1db;
+      --accent:#4fbcff; --radius:16px; --shadow:0 14px 36px rgba(0,0,0,.6);
+    }
+    *{box-sizing:border-box}
+    body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:var(--bg); color:var(--text);}    
+    header{padding:22px; text-align:center; position:relative}
+    header h1{margin:0 0 6px; font-size:clamp(20px,4vw,32px)}
+    header p{margin:0; color:var(--muted)}
+
+    .badge{position:fixed; right:14px; top:12px; z-index:20; padding:8px 12px; border-radius:999px; border:1px solid var(--edge); background:#111; box-shadow:var(--shadow); font-weight:600}
+    .badge small{color:var(--muted)}
+    .badge b{color:var(--accent)}
+
+    .wrap{max-width:1100px; margin:0 auto; padding:20px}
+
+    .toolbar{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:18px 0}
+    button{
+      cursor:pointer; border:none; border-radius:12px; padding:10px 14px;
+      background:var(--accent); color:#00121f; font-weight:700; box-shadow:var(--shadow);
+      transition:transform .3s ease, box-shadow .3s ease;
+    }
+    button:hover{
+      transform:translateY(-6px);
+      box-shadow:0 12px 24px rgba(79,188,255,0.4);
+    }
+    button:active{
+      transform:translateY(-2px);
+      box-shadow:0 6px 12px rgba(79,188,255,0.2);
+    }
+    button.secondary{
+      background:#111; color:var(--text); border:1px solid var(--edge);
+    }
+    .notice{font-size:13px; color:var(--muted)}
+
+    .grid{display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+    .card{
+      background:var(--card); border:1px solid var(--edge); border-radius:var(--radius); box-shadow:var(--shadow);
+      padding:16px; transition:transform .25s ease, box-shadow .35s ease; will-change:transform; transform-style:preserve-3d
+    }
+    .card:hover{transform:translateY(-8px)}
+
+    .day{display:flex; align-items:center; justify-content:space-between; margin-bottom:12px}
+    .day h3{margin:0; font-size:18px}
+    .muscles{display:flex; gap:8px; flex-wrap:wrap}
+    .chip{padding:6px 10px; border-radius:999px; border:1px solid var(--edge); background:#111; font-size:13px}
+
+    .times{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px}
+    label{font-size:12px; color:var(--muted)}
+    input[type="time"]{width:100%; padding:8px 10px; border-radius:10px; border:1px solid var(--edge); background:#000; color:var(--text)}
+
+    h2{margin-top:28px}
+    table{width:100%; border-collapse:collapse; border-radius:var(--radius); border:1px solid var(--edge); background:var(--card)}
+    th,td{padding:12px 10px; border-top:1px solid var(--edge)}
+    th{background:#111; text-align:left}
+    tr:hover td{background:#141414}
+
+    footer{padding:20px; text-align:center; color:var(--muted)}
+
+    @media (max-width:600px){
+      body{background:#000000}
+      header h1{font-size:22px}
+      .toolbar{flex-direction:column; align-items:stretch}
+      .toolbar button{width:100%}
+      .grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="badge"><small>built by</small> <b>charan kakarla</b></div>
+
+  <header>
+    <h1>Gym Timetable (Mon–Sat) — With Alerts</h1>
+    <p>Two workouts per day. Sunday is rest day.</p>
+  </header>
+
+  <div class="wrap">
+    <div class="toolbar">
+      <button id="enableBtn">🔔 Enable Notifications</button>
+      <button class="secondary" id="testBtn">Test Notification</button>
+      <button class="secondary" id="bgBtn">Enable Background Alerts (Push)</button>
+      <span class="notice">Notifications trigger at your set times. For alerts when the page is closed, enable Push below and send from your server.</span>
+    </div>
+
+    <div id="cards" class="grid"></div>
+
+    <h2>Weekly Timetable</h2>
+    <table id="table">
+      <thead>
+        <tr><th>Day</th><th>Target 1</th><th>Target 2</th><th>Time A</th><th>Time B</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="pushInfo" class="notice" style="margin-top:12px; display:none">
+      <div><b>Push subscription created.</b> Copy this JSON to your server to send pushes:</div>
+      <textarea id="subOut" style="width:100%;height:120px;background:#0a0a0a;color:#e9f3ff;border:1px solid #1e1e1e;border-radius:10px;margin-top:8px" readonly></textarea>
+    </div>
+  </div>
+
+  <footer>Stay consistent 💪 • <b>BuiltByCharanKakarla</b></footer>
+
+<script>
+(function(){
+  const DEFAULT_TIMES = { A: '07:00', B: '18:30' };
+  const PLAN = [
+    { key:'mon', day:'Monday', one:'Chest', two:'Triceps' },
+    { key:'tue', day:'Tuesday', one:'Back', two:'Biceps' },
+    { key:'wed', day:'Wednesday', one:'Quads', two:'Hamstrings' },
+    { key:'thu', day:'Thursday', one:'Shoulders', two:'Abs' },
+    { key:'fri', day:'Friday', one:'Glutes', two:'Lower Back' },
+    { key:'sat', day:'Saturday', one:'Calves', two:'Core' },
+  ];
+
+  const saved = JSON.parse(localStorage.getItem('gym-timetable') || '{}');
+  const cards = document.getElementById('cards');
+  cards.innerHTML = PLAN.map(row=>{
+    const times = Object.assign({}, DEFAULT_TIMES, saved[row.key]||{});
+    return `
+      <div class="card" data-key="${row.key}">
+        <div class="day"><h3>${row.day}</h3>
+          <div class="muscles">
+            <span class="chip">${row.one}</span>
+            <span class="chip">${row.two}</span>
+          </div></div>
+        <div class="times">
+          <div><label>Time A</label><input type="time" value="${times.A}" data-slot="A"></div>
+          <div><label>Time B</label><input type="time" value="${times.B}" data-slot="B"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // 3D tilt on cards (desktop only)
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints||0) > 0;
+  if(!prefersReduced && !isTouch){
+    const clamp = (n,min,max)=> Math.max(min, Math.min(max, n));
+    document.querySelectorAll('.card').forEach(card=>{
+      let raf=null;
+      function onMove(e){
+        const r = card.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width;
+        const y = (e.clientY - r.top)  / r.height;
+        const rotY = clamp((x - 0.5) * 16, -12, 12);
+        const rotX = clamp((0.5 - y) * 12, -8, 8);
+        const dx = (x - 0.5) * 6;
+        const dy = (y - 0.5) * 6;
+        if(raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(()=>{
+          card.style.transform = `perspective(800px) rotateX(${rotX}deg) rotateY(${rotY}deg) translate(${dx}px, ${dy}px) scale(1.02)`;
+        });
+      }
+      function onLeave(){ if(raf) cancelAnimationFrame(raf); card.style.transform=''; }
+      card.addEventListener('mousemove', onMove, {passive:true});
+      card.addEventListener('mouseleave', onLeave);
+      card.addEventListener('mouseenter', ()=>{ card.style.transition = 'transform .12s ease'; });
+    });
+  }
+
+  // Save time changes
+  cards.addEventListener('change', e=>{
+    if(e.target.matches('input[type="time"]')){
+      const card = e.target.closest('.card');
+      const key = card.dataset.key;
+      const slot = e.target.dataset.slot;
+      saved[key] = saved[key] || { ...DEFAULT_TIMES };
+      saved[key][slot] = e.target.value;
+      localStorage.setItem('gym-timetable', JSON.stringify(saved));
+      renderTable();
+    }
+  });
+
+  function renderTable(){
+    const tbody = document.querySelector('#table tbody');
+    tbody.innerHTML = PLAN.map(r=>{
+      const t = Object.assign({}, DEFAULT_TIMES, saved[r.key]||{});
+      return `<tr><td>${r.day}</td><td>${r.one}</td><td>${r.two}</td><td>${t.A}</td><td>${t.B}</td></tr>`;
+    }).join('') + `<tr><td>Sunday</td><td colspan="4" style="color:#666;font-style:italic">Rest Day 💤</td></tr>`;
+  }
+  renderTable();
+
+  // Notifications (foreground)
+  const enableBtn = document.getElementById('enableBtn');
+  const testBtn   = document.getElementById('testBtn');
+  function notify(title, body){
+    const msg = String(title) + '\n' + String(body);
+    try{
+      if('Notification' in window && Notification.permission === 'granted'){
+        if(navigator.serviceWorker && navigator.serviceWorker.ready){
+          navigator.serviceWorker.ready.then(reg=>reg.showNotification(String(title), { body:String(body) }));
+        } else {
+          new Notification(String(title), { body:String(body) });
+        }
+      } else { alert(msg); }
+    }catch(err){ console.error('Notify error:', err); alert(msg); }
+  }
+  if(enableBtn){ enableBtn.addEventListener('click', async ()=>{
+      if(!('Notification' in window)) return alert('Notifications are not supported in this browser.');
+      if(Notification.permission === 'granted') return notify('Notifications on ✅','You will get alerts at your set times.');
+      const p = await Notification.requestPermission();
+      if(p === 'granted') notify('All set!','I will remind you at the exact minute.');
+    });
+  }
+  if(testBtn){ testBtn.addEventListener('click', ()=>{ const t=new Date().toTimeString().slice(0,5); notify('Test Gym Alert', `It is ${t}. This is how your alerts will look.`); }); }
+
+  // Background alerts via Service Worker + Push
+  const bgBtn = document.getElementById('bgBtn');
+  const pushInfo = document.getElementById('pushInfo');
+  const subOut = document.getElementById('subOut');
+
+  const swCode = "self.addEventListener('install',e=>self.skipWaiting());\nself.addEventListener('activate',e=>self.clients.claim());\nself.addEventListener('push', e=>{ let data={title:'Gym Alert', body:'Time to train!'}; try{ if(e.data){ data = Object.assign(data, e.data.json()); } }catch(_){}; e.waitUntil(self.registration.showNotification(data.title, { body:data.body })); });";
+
+  async function ensureSW(){
+    if(!('serviceWorker' in navigator)) return null;
+    const url = URL.createObjectURL(new Blob([swCode], {type:'text/javascript'}));
+    try{ const reg = await navigator.serviceWorker.register(url); return reg; }catch(e){ console.warn('SW reg failed', e); return null; }
+  }
+
+  function urlBase64ToUint8Array(base64String){ const padding = '='.repeat((4 - base64String.length % 4) % 4); const base64 = (base64String + padding).replace(/-/g,'+').replace(/_/g,'/'); const rawData = atob(base64); const outputArray = new Uint8Array(rawData.length); for (let i=0;i<rawData.length;i++){ outputArray[i] = rawData.charCodeAt(i);} return outputArray; }
+
+  async function enablePush(){
+    try{
+      const reg = await ensureSW();
+      if(!reg) return alert('Service Worker not supported.');
+      if(!('PushManager' in window)) return alert('Push not supported in this browser.');
+      const perm = await Notification.requestPermission();
+      if(perm !== 'granted') return alert('Please allow notifications first.');
+      const VAPID_PUBLIC_KEY = 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY_BASE64URL';
+      const appServerKey = VAPID_PUBLIC_KEY==='REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY_BASE64URL'?null: urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: appServerKey });
+      const json = JSON.stringify(sub);
+      pushInfo.style.display='block';
+      subOut.value = json;
+      alert('Background alerts enabled. Copy subscription JSON and use your server to send pushes at your workout times.');
+    }catch(err){ console.error('Push enable error', err); alert('Could not enable background alerts: '+ err); }
+  }
+  if(bgBtn){ bgBtn.addEventListener('click', enablePush); }
+
+  // Minute ticker while page is open (Mon–Sat)
+  let lastMinute = '';
+  setInterval(()=>{
+    const now = new Date();
+    const minute = now.toTimeString().slice(0,5);
+    if(minute === lastMinute) return; lastMinute = minute;
+    const dayIdx = now.getDay(); if(dayIdx === 0) return; // Sunday rest
+    const planRow = PLAN[dayIdx - 1];
+    const times = Object.assign({}, DEFAULT_TIMES, saved[planRow.key]||{});
+    if(minute === times.A || minute === times.B){
+      const slot = (minute === times.A) ? 'Time A' : 'Time B';
+      notify(`Gym Time: ${planRow.day} (${slot})`, `${planRow.one} + ${planRow.two} — Let's go!`);
+    }
+  }, 5000);
+
+  // Developer self-tests (console only)
+  (function(){ try{
+    const s = String('A') + '\n' + String('B'); console.assert(typeof s==='string' && s.indexOf('\n')>-1, 'SelfTest: newline join failed');
+    const hm = new Date().toTimeString().slice(0,5); console.assert(/^\d{2}:\d{2}$/.test(hm), 'SelfTest: time format not HH:MM');
+    const t = Object.assign({}, DEFAULT_TIMES, {A:'06:00'}); console.assert(t.A==='06:00' && t.B===DEFAULT_TIMES.B, 'SelfTest: default merge failed');
+    console.assert(Array.isArray(PLAN) && PLAN.length===6, 'SelfTest: PLAN length should be 6 (Mon–Sat)');
+    const btns=document.querySelectorAll('.toolbar button'); console.assert(btns.length>=3, 'SelfTest: expected 3 toolbar buttons');
+  }catch(e){ console.warn('SelfTests failed:', e); } })();
+})();
+</script>
+</body>
+</html>
